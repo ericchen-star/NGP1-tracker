@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>門市 NGP1 目標追蹤（雲端共編版）</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg:#ffffff; --text-primary:#1a1a1a; --text-secondary:#6b6b6b;
+    --border:#e5e5e5; --surface-secondary:#f5f5f5;
+    --green:#2f7d4f; --yellow:#b7791f; --red:#c0392b; --blue:#3a6ea5;
+  }
+  * { box-sizing:border-box; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+    background:var(--bg); color:var(--text-primary); margin:0; padding:20px;
+  }
+  .wrap { max-width:1100px; margin:0 auto; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  .meta { color:var(--text-secondary); font-size:12px; margin-bottom:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .sync-dot { width:8px; height:8px; border-radius:50%; background:#ccc; flex:none; }
+  .sync-dot.ok { background:#2f7d4f; }
+  .sync-dot.busy { background:#d4a017; }
+  .sync-dot.error { background:#c0392b; }
+  .meta-sub { color:var(--text-secondary); font-size:12px; margin-bottom:16px; }
+  .tabs { display:flex; gap:6px; border-bottom:1px solid var(--border); margin-bottom:20px; flex-wrap:wrap; }
+  .tab-btn {
+    border:none; background:none; padding:8px 14px; font-size:13px; cursor:pointer;
+    color:var(--text-secondary); border-bottom:2px solid transparent; border-radius:6px 6px 0 0;
+  }
+  .tab-btn.active { color:var(--text-primary); font-weight:600; border-bottom:2px solid var(--blue); }
+  .tab-btn:hover { background:var(--surface-secondary); }
+  .panel { display:none; }
+  .panel.active { display:block; }
+  .section { margin-bottom:28px; }
+  .section h2 { font-size:14px; margin:0 0 10px; }
+  .cum-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:24px; }
+  .cum-card { border:1px solid var(--border); border-radius:12px; padding:14px; }
+  .cum-card h3 { margin:0 0 8px; font-size:13px; }
+  .cum-rate { font-size:22px; font-weight:700; margin-bottom:6px; }
+  .bar-bg { height:9px; background:var(--surface-secondary); border-radius:5px; overflow:hidden; margin-bottom:6px; }
+  .bar-fill { height:100%; border-radius:5px; transition:width .2s; }
+  .cum-nums { font-size:11px; color:var(--text-secondary); }
+  .store-block { border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:10px; }
+  .store-block h3 { margin:0 0 10px; font-size:13px; }
+  .month-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
+  .month-cell { text-align:center; }
+  .month-cell .label { font-size:10px; color:var(--text-secondary); margin-bottom:4px; }
+  .month-cell .rate { font-size:11px; font-weight:600; margin-top:4px; }
+  .mini-bar-bg { height:50px; width:12px; background:var(--surface-secondary); border-radius:4px; margin:0 auto; display:flex; align-items:flex-end; overflow:hidden; }
+  .mini-bar-fill { width:100%; border-radius:4px; }
+  .chart-box { position:relative; height:260px; margin-bottom:8px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { padding:6px 5px; text-align:left; border-bottom:1px solid var(--border); }
+  th { color:var(--text-secondary); font-weight:500; font-size:11px; }
+  .rate-good { color:var(--green); }
+  .rate-warn { color:var(--yellow); }
+  .rate-bad { color:var(--red); }
+  .settings-row { display:flex; gap:16px; align-items:center; margin-bottom:16px; flex-wrap:wrap; font-size:12px; color:var(--text-secondary); }
+  .settings-row label { display:flex; align-items:center; gap:6px; }
+  input[type=number], input[type=text] {
+    border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:12px;
+    font-family:inherit; width:100%;
+  }
+  select {
+    border:1px solid var(--border); border-radius:6px; padding:4px 4px; font-size:12px; font-family:inherit; width:100%;
+  }
+  .settings-row input[type=number] { width:70px; }
+  .num-cell input { text-align:right; }
+  input[type=number] { -moz-appearance:textfield; appearance:textfield; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+  .btn {
+    border:1px solid var(--border); background:#fff; border-radius:6px; padding:6px 12px;
+    font-size:12px; cursor:pointer; color:var(--text-primary);
+  }
+  .btn:hover { background:var(--surface-secondary); }
+  .btn-danger { color:var(--red); border-color:#f2c6c1; }
+  .btn-add { margin-top:8px; }
+  .del-btn { border:none; background:none; color:var(--text-secondary); cursor:pointer; font-size:14px; }
+  .del-btn:hover { color:var(--red); }
+  .readonly-cell { color:var(--text-secondary); }
+  .footer-actions { margin-top:24px; padding-top:12px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+
+  .strategy-label { font-size:12px; color:var(--text-secondary); margin-bottom:10px; letter-spacing:.02em; }
+  .strategy-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+  .strategy-card { background:#ece5d8; border-radius:12px; padding:16px; }
+  .strategy-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .strategy-num {
+    flex:none; width:22px; height:22px; border-radius:50%; background:#a9713f; color:#fff;
+    font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center;
+  }
+  .strategy-title {
+    flex:1; border:none; background:transparent; font-weight:700; font-size:14px;
+    color:var(--text-primary); padding:2px 0; font-family:inherit;
+  }
+  .strategy-title:focus { outline:none; border-bottom:1px solid #a9713f; }
+  .strategy-text {
+    width:100%; min-height:96px; border:1px solid #d8cfbe; border-radius:8px; background:#fbf9f5;
+    padding:10px; font-size:13px; line-height:1.5; font-family:inherit; color:var(--text-primary);
+    resize:vertical;
+  }
+  .strategy-del { margin-top:8px; }
+  .strategy-add { margin-top:14px; }
+</style>
+</head>
+<body>
+<h2 class="sr-only">門市 NGP1 目標追蹤工具（雲端共編版），可直接在網頁上輸入各店商品明細與月度資料，多人同時編輯資料會即時同步，自動計算 NGP1 達成率並以進度條與圖表呈現</h2>
+<div class="wrap">
+  <h1>門市 NGP1 目標追蹤（雲端共編版）</h1>
+  <div class="meta"><span class="sync-dot" id="syncDot"></span><span id="syncText">連線中…</span></div>
+  <div class="meta-sub">期間：2026年下半年（7–12月）　｜　資料存在雲端資料庫，任何人打開這個網址都能一起編輯、即時同步</div>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div id="panels"></div>
+
+  <div class="footer-actions">
+    <button class="btn btn-danger" id="resetBtn">清除全部資料（會影響所有人）</button>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://vtmrlkakcxhfahussrgu.supabase.co";
+const SUPABASE_KEY = "sb_publishable_bC0awmT8nQTWqhjTpLgHxQ_HYRH2RJ9";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const MONTHS = ["7月","8月","9月","10月","11月","12月"];
+const BEUTII_STORES = ["Beutii-三創店","Beutii-新莊宏匯店","Beutii-信義統一店"];
+const DREAM_STORE = "Dreame-信義統一店";
+const ALL_STORES = [...BEUTII_STORES, DREAM_STORE];
+
+const DEFAULT_TARGETS = {
+  "Beutii-三創店": [397000,291000,386000,365000,328000,489000],
+  "Beutii-新莊宏匯店": [356000,138000,302000,236000,380000,457000],
+  "Beutii-信義統一店": [232000,255000,251000,310000,221000,231000],
+  "Dreame-信義統一店": [121000,421000,289000,318000,176000,176000],
+};
+
+const DEFAULT_COMMISSION = {
+  "Beutii-三創店": 0.08,
+  "Beutii-新莊宏匯店": 0.09,
+  "Beutii-信義統一店": 0.105,
+};
+
+const DEFAULT_STRATEGY_NOTES = [
+  { title: "提高品牌店 SR，掌握人流", text: "提高品牌店SR，維持小檔留單，大檔call客衝刺，並且找機會丟百貨鋪底到北部的社區群組裡。" },
+  { title: "毛利結構目標", text: "提高毛利結構，三創店、統一店維持30%，宏匯店27%。" },
+  { title: "專案機目標與考核", text: "設定專案機目標，每週檢核，設定獎勵、考核分數。" },
+  { title: "呆滯品退倉與坪效", text: "呆滯商品退倉機制，更換其他潛力商品。改為追求坪效，陳列更換找出每間門市擅長的品項。" },
+  { title: "低毛商品銷售優先序", text: "低毛商品優先為各店列出NGP1高的商品販售。不是刻意不賣，而是賣也要選擇最賺錢的。" },
+  { title: "三創12月店內特賣會", text: "三創12月店內特賣會，提前一個月準備，選品嚴格守住毛利底線，提升業績。" },
+];
+
+function defaultState() {
+  const products = {};
+  const otherRevenue = {};
+  BEUTII_STORES.forEach(s => {
+    products[s] = [];
+    otherRevenue[s] = {};
+    MONTHS.forEach(m => { otherRevenue[s][m] = { gmv: null, gp: null }; });
+  });
+  const dreamGmv = {};
+  MONTHS.forEach(m => { dreamGmv[m] = null; });
+  return {
+    targets: JSON.parse(JSON.stringify(DEFAULT_TARGETS)),
+    commission: { ...DEFAULT_COMMISSION },
+    cashFeeRate: 0.02,
+    dreamRate: 0.03,
+    products,
+    otherRevenue,
+    dreamGmv,
+    strategyNotes: JSON.parse(JSON.stringify(DEFAULT_STRATEGY_NOTES)).map((n, i) => ({ id: "s" + i, ...n })),
+  };
+}
+
+function mergeWithDefaults(parsed) {
+  const base = defaultState();
+  if (!parsed) return base;
+  return { ...base, ...parsed,
+    targets: { ...base.targets, ...(parsed.targets||{}) },
+    commission: { ...base.commission, ...(parsed.commission||{}) },
+    products: { ...base.products, ...(parsed.products||{}) },
+    otherRevenue: { ...base.otherRevenue, ...(parsed.otherRevenue||{}) },
+    dreamGmv: { ...base.dreamGmv, ...(parsed.dreamGmv||{}) },
+    strategyNotes: (parsed.strategyNotes && parsed.strategyNotes.length) ? parsed.strategyNotes : base.strategyNotes,
+  };
+}
+
+let state = defaultState();
+
+// ---------- 雲端同步 ----------
+function setSyncStatus(kind, text) {
+  const dot = document.getElementById("syncDot");
+  const label = document.getElementById("syncText");
+  if (!dot || !label) return;
+  dot.className = "sync-dot" + (kind ? " " + kind : "");
+  label.textContent = text;
+}
+
+let saveTimer = null;
+
+async function pushToCloud() {
+  setSyncStatus("busy", "同步中…");
+  const { error } = await sb.from("app_state").update({
+    data: state,
+    updated_at: new Date().toISOString(),
+  }).eq("id", 1);
+  if (error) {
+    console.error("寫入雲端失敗", error);
+    setSyncStatus("error", "同步失敗，請檢查網路後重新整理（" + error.message + "）");
+  } else {
+    const now = new Date();
+    setSyncStatus("ok", "已同步　最後更新 " + now.toLocaleTimeString("zh-TW", { hour12: false }));
+  }
+}
+
+// 立即存檔＋重繪：用在新增/刪除列、下拉選單、設定值變更等離散操作
+function saveState() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  pushToCloud();
+  renderAll();
+}
+// 打字過程中：先更新本地畫面，網路寫入延遲批次送出，避免每個字都打一次雲端
+function saveStateQuiet() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { pushToCloud(); }, 600);
+}
+
+let pendingRemoteState = null;
+function isCurrentlyEditing() {
+  const el = document.activeElement;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
+}
+function applyPendingRemoteIfIdle() {
+  if (!isCurrentlyEditing() && pendingRemoteState) {
+    state = mergeWithDefaults(pendingRemoteState);
+    pendingRemoteState = null;
+    renderAll();
+  }
+}
+document.addEventListener("focusout", () => { setTimeout(applyPendingRemoteIfIdle, 0); });
+
+async function initCloud() {
+  setSyncStatus("busy", "連線中…");
+  const { data, error } = await sb.from("app_state").select("data").eq("id", 1).single();
+  if (error) {
+    console.error("讀取雲端資料失敗", error);
+    setSyncStatus("error", "讀取雲端資料失敗，暫時使用預設值（" + error.message + "）");
+    renderAll();
+    return;
+  }
+  state = mergeWithDefaults(data.data);
+  setSyncStatus("ok", "已連上雲端資料庫");
+  renderAll();
+
+  sb.channel("app_state-sync")
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_state", filter: "id=eq.1" }, (payload) => {
+      const incoming = payload.new && payload.new.data;
+      if (!incoming) return;
+      if (isCurrentlyEditing()) {
+        pendingRemoteState = incoming;
+      } else {
+        state = mergeWithDefaults(incoming);
+        renderAll();
+      }
+    })
+    .subscribe();
+}
+
+function uid() {
+  return "p" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function fmtMoney(v) {
+  if (v === null || v === undefined || isNaN(v)) return "$0";
+  return "$" + Math.round(v).toLocaleString();
+}
+function fmtPct(v) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  return (v * 100).toFixed(1) + "%";
+}
+function rateClass(v) {
+  if (v === null || v === undefined || isNaN(v)) return "";
+  return v >= 1 ? "rate-good" : v >= 0.8 ? "rate-warn" : "rate-bad";
+}
+function barColor(v) {
+  if (v === null || v === undefined || isNaN(v)) return "#cccccc";
+  return v >= 1 ? "#2f7d4f" : v >= 0.8 ? "#d4a017" : "#c0392b";
+}
+
+// ---------- 計算邏輯 ----------
+// GMV(單價)、GP(單價) 是「每一件商品」的金額，NGP1 分別用銷售數量／目標數量去乘，
+// 兩者共用同一組單位經濟效益，只是乘上各自的數量。
+function unitNGP1(p, store) {
+  const commission = state.commission[store] ?? 0;
+  const fee = state.cashFeeRate ?? 0;
+  const unitGmv = Number(p.gmv) || 0;
+  const unitGp = Number(p.gp) || 0;
+  return unitGp - unitGmv * commission - unitGmv * fee;
+}
+// 實際NGP1：跟「銷售數量」連動
+function productNGP1(p, store) {
+  const qty = Number(p.qty) || 0;
+  return qty * unitNGP1(p, store);
+}
+// 目標NGP1：跟「目標數量」連動（用同一個單位淨利，不需要先有銷售數量）
+function productTargetNGP1(p, store) {
+  const targetQty = Number(p.targetQty) || 0;
+  if (!targetQty) return null;
+  return targetQty * unitNGP1(p, store);
+}
+function productGPPct(p) {
+  const unitGmv = Number(p.gmv) || 0;
+  const unitGp = Number(p.gp) || 0;
+  if (!unitGmv) return null;
+  return unitGp / unitGmv;
+}
+
+// 其他營收（一整包金額，不逐筆列商品）：直接填當月 GMV、GP 總額，換算NGP1的方式跟商品明細一致
+function otherRevenueEntry(store, month) {
+  const entry = (state.otherRevenue[store] || {})[month] || { gmv: null, gp: null };
+  return entry;
+}
+function otherRevenueNGP1(store, month) {
+  const commission = state.commission[store] ?? 0;
+  const fee = state.cashFeeRate ?? 0;
+  const entry = otherRevenueEntry(store, month);
+  const gmv = Number(entry.gmv) || 0;
+  const gp = Number(entry.gp) || 0;
+  return gp - gmv * commission - gmv * fee;
+}
+
+function beutiiMonthlySummary(store) {
+  return MONTHS.map((month, i) => {
+    const rows = (state.products[store] || []).filter(p => p.month === month);
+    const productQty = rows.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+    const productGmv = rows.reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.gmv) || 0), 0);
+    const productGp = rows.reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.gp) || 0), 0);
+    const productNgp1 = rows.reduce((s, p) => s + productNGP1(p, store), 0);
+
+    const otherEntry = otherRevenueEntry(store, month);
+    const otherGmv = Number(otherEntry.gmv) || 0;
+    const otherGp = Number(otherEntry.gp) || 0;
+    const otherNgp1 = otherRevenueNGP1(store, month);
+
+    const qty = productQty; // 其他營收沒有數量概念
+    const gmv = productGmv + otherGmv;
+    const gp = productGp + otherGp;
+    const ngp1 = productNgp1 + otherNgp1;
+    const target = state.targets[store][i];
+    const rate = target ? ngp1 / target : null;
+    return { month, qty, gmv, gp, gpPct: gmv ? gp/gmv : null, ngp1, target, rate };
+  });
+}
+
+function dreamMonthlySummary() {
+  return MONTHS.map((month, i) => {
+    const gmv = state.dreamGmv[month];
+    const ngp1 = gmv ? gmv * state.dreamRate : 0;
+    const target = state.targets[DREAM_STORE][i];
+    const rate = target ? ngp1 / target : null;
+    return { month, gmv, ngp1, target, rate };
+  });
+}
+
+function storeCumulative(store) {
+  if (store === DREAM_STORE) {
+    const rows = dreamMonthlySummary();
+    const target = rows.reduce((s, r) => s + (r.target || 0), 0);
+    const actual = rows.reduce((s, r) => s + (r.ngp1 || 0), 0);
+    return { store, target, actual, rate: target ? actual / target : null };
+  }
+  const rows = beutiiMonthlySummary(store);
+  const target = rows.reduce((s, r) => s + (r.target || 0), 0);
+  const actual = rows.reduce((s, r) => s + (r.ngp1 || 0), 0);
+  return { store, target, actual, rate: target ? actual / target : null };
+}
+
+function allMonthlyRows() {
+  const rows = [];
+  BEUTII_STORES.forEach(store => {
+    beutiiMonthlySummary(store).forEach(r => rows.push({ store, month: r.month, target: r.target, actual: r.ngp1, rate: r.rate }));
+  });
+  dreamMonthlySummary().forEach(r => rows.push({ store: DREAM_STORE, month: r.month, target: r.target, actual: r.ngp1, rate: r.rate }));
+  return rows;
+}
+
+// ---------- 渲染 ----------
+const TAB_DEFS = [
+  { id: "overview", label: "總覽" },
+  { id: "Beutii-三創店", label: "三創店" },
+  { id: "Beutii-新莊宏匯店", label: "新莊宏匯店" },
+  { id: "Beutii-信義統一店", label: "信義統一店" },
+  { id: DREAM_STORE, label: "Dreame" },
+];
+let activeTab = "overview";
+
+let charts = {};
+function destroyChart(key) {
+  if (charts[key]) { charts[key].destroy(); delete charts[key]; }
+}
+
+function renderTabs() {
+  const tabsEl = document.getElementById("tabs");
+  tabsEl.innerHTML = "";
+  TAB_DEFS.forEach(t => {
+    const btn = document.createElement("button");
+    btn.className = "tab-btn" + (activeTab === t.id ? " active" : "");
+    btn.textContent = t.label;
+    btn.onclick = () => { activeTab = t.id; renderAll(); };
+    tabsEl.appendChild(btn);
+  });
+}
+
+function renderOverview(container) {
+  const cum = ALL_STORES.map(storeCumulative);
+  const cardsHtml = cum.map(c => `
+    <div class="cum-card">
+      <h3>${c.store}</h3>
+      <div class="cum-rate ${rateClass(c.rate)}">${fmtPct(c.rate)}</div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${Math.min((c.rate||0)*100,100)}%;background:${barColor(c.rate)}"></div></div>
+      <div class="cum-nums">${fmtMoney(c.actual)} / ${fmtMoney(c.target)}</div>
+    </div>
+  `).join("");
+
+  const monthly = allMonthlyRows();
+  const blocksHtml = ALL_STORES.map(store => {
+    const rows = monthly.filter(r => r.store === store);
+    const cells = rows.map(r => `
+      <div class="month-cell">
+        <div class="label">${r.month}</div>
+        <div class="mini-bar-bg"><div class="mini-bar-fill" style="height:${Math.min((r.rate||0)*100,100)}%;background:${barColor(r.rate)}"></div></div>
+        <div class="rate ${rateClass(r.rate)}">${fmtPct(r.rate)}</div>
+      </div>
+    `).join("");
+    return `<div class="store-block"><h3>${store}</h3><div class="month-grid">${cells}</div></div>`;
+  }).join("");
+
+  const strategyCardsHtml = state.strategyNotes.map((note, i) => `
+    <div class="strategy-card" data-strategy-id="${note.id}">
+      <div class="strategy-header">
+        <span class="strategy-num">${i + 1}</span>
+        <input class="strategy-title" data-strategy-field="title" value="${escapeHtml(note.title)}" placeholder="標題">
+      </div>
+      <textarea class="strategy-text" data-strategy-field="text" placeholder="說明">${escapeHtml(note.text)}</textarea>
+      <button class="btn btn-danger strategy-del" data-action="del-strategy">刪除卡片</button>
+    </div>
+  `).join("");
+
+  container.innerHTML = `
+    <div class="section">
+      <div class="strategy-label">全店共同策略方向 · H2</div>
+      <div class="strategy-grid">${strategyCardsHtml}</div>
+      <button class="btn strategy-add" id="addStrategyBtn">+ 新增策略卡片</button>
+    </div>
+    <div class="section">
+      <h2>下半年累計達成狀況</h2>
+      <div class="cum-cards">${cardsHtml}</div>
+    </div>
+    <div class="section">
+      <h2>各店每月達成率</h2>
+      ${blocksHtml}
+    </div>
+    <div class="section">
+      <h2>下半年累計：目標 vs 實際</h2>
+      <div class="chart-box"><canvas id="chartCum"></canvas></div>
+    </div>
+    <div class="section">
+      <h2>每月達成率趨勢</h2>
+      <div class="chart-box"><canvas id="chartTrend"></canvas></div>
+    </div>
+  `;
+
+  container.querySelectorAll(".strategy-card").forEach(card => {
+    const id = card.dataset.strategyId;
+    card.querySelectorAll("[data-strategy-field]").forEach(input => {
+      const field = input.dataset.strategyField;
+      input.addEventListener("input", (e) => {
+        const note = state.strategyNotes.find(n => n.id === id);
+        if (!note) return;
+        note[field] = e.target.value;
+        saveStateQuiet();
+      });
+      input.addEventListener("blur", () => { saveState(); });
+    });
+    card.querySelector('[data-action="del-strategy"]').onclick = () => {
+      state.strategyNotes = state.strategyNotes.filter(n => n.id !== id);
+      saveState();
+    };
+  });
+  document.getElementById("addStrategyBtn").onclick = () => {
+    state.strategyNotes.push({ id: uid(), title: "", text: "" });
+    saveState();
+  };
+
+  destroyChart("cum");
+  destroyChart("trend");
+
+  charts.cum = new Chart(document.getElementById("chartCum"), {
+    type: "bar",
+    data: {
+      labels: cum.map(c => c.store),
+      datasets: [
+        { label: "累計目標NGP1", data: cum.map(c => c.target), backgroundColor: "#c9d6e3" },
+        { label: "累計實際NGP1", data: cum.map(c => c.actual), backgroundColor: "#2f7d4f" },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { y: { ticks: { callback: v => "$" + v.toLocaleString() } } },
+      plugins: { legend: { position: "bottom" } }
+    }
+  });
+
+  const colors = ["#2f7d4f","#5b8def","#c0392b","#b7791f"];
+  charts.trend = new Chart(document.getElementById("chartTrend"), {
+    type: "line",
+    data: {
+      labels: MONTHS,
+      datasets: ALL_STORES.map((store, i) => ({
+        label: store,
+        data: MONTHS.map(m => {
+          const rec = monthly.find(r => r.store === store && r.month === m);
+          return rec ? rec.rate : null;
+        }),
+        borderColor: colors[i % colors.length],
+        fill: false, tension: 0.2,
+      }))
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: { y: { ticks: { callback: v => (v*100).toFixed(0) + "%" } } }
+    }
+  });
+}
+
+function renderBeutiiTab(container, store) {
+  const commission = state.commission[store];
+  const rows = state.products[store] || [];
+
+  const productRowsHtml = rows.map(p => {
+    const gpPct = productGPPct(p);
+    const ngp1 = productNGP1(p, store);
+    const targetNgp1 = productTargetNGP1(p, store);
+    return `
+      <tr data-id="${p.id}">
+        <td><select data-field="month">${MONTHS.map(m => `<option value="${m}" ${p.month===m?"selected":""}>${m}</option>`).join("")}</select></td>
+        <td><input type="text" data-field="name" value="${escapeHtml(p.name)}" placeholder="產品名稱"></td>
+        <td class="num-cell"><input type="number" data-field="qty" value="${p.qty ?? ""}" placeholder="0"></td>
+        <td class="num-cell"><input type="number" data-field="targetQty" value="${p.targetQty ?? ""}" placeholder="0"></td>
+        <td class="num-cell"><input type="number" data-field="gmv" value="${p.gmv ?? ""}" placeholder="0"></td>
+        <td class="num-cell"><input type="number" data-field="gp" value="${p.gp ?? ""}" placeholder="0"></td>
+        <td class="readonly-cell num-cell" data-cell="gpPct">${fmtPct(gpPct)}</td>
+        <td class="readonly-cell num-cell" data-cell="ngp1">${fmtMoney(ngp1)}</td>
+        <td class="readonly-cell num-cell" data-cell="targetNgp1">${targetNgp1===null ? "—" : fmtMoney(targetNgp1)}</td>
+        <td><button class="del-btn" data-action="del">✕</button></td>
+      </tr>
+    `;
+  }).join("");
+
+  const otherRowsHtml = MONTHS.map(month => {
+    const entry = otherRevenueEntry(store, month);
+    const ngp1 = otherRevenueNGP1(store, month);
+    return `
+      <tr data-other-month="${month}">
+        <td>${month}</td>
+        <td class="num-cell"><input type="number" data-other-field="gmv" value="${entry.gmv ?? ""}" placeholder="0"></td>
+        <td class="num-cell"><input type="number" data-other-field="gp" value="${entry.gp ?? ""}" placeholder="0"></td>
+        <td class="readonly-cell num-cell" data-other-cell="ngp1">${fmtMoney(ngp1)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  const summary = beutiiMonthlySummary(store);
+  const summaryRowsHtml = summary.map((r, i) => `
+    <tr>
+      <td>${r.month}</td>
+      <td class="num-cell"><input type="number" data-target-idx="${i}" value="${r.target ?? ""}"></td>
+      <td class="num-cell">${r.qty.toLocaleString()}</td>
+      <td class="num-cell">${fmtMoney(r.gmv)}</td>
+      <td class="num-cell">${fmtMoney(r.gp)}</td>
+      <td class="num-cell">${fmtPct(r.gpPct)}</td>
+      <td class="num-cell">${fmtMoney(r.ngp1)}</td>
+      <td class="num-cell ${rateClass(r.rate)}">${fmtPct(r.rate)}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <div class="settings-row">
+      <label>抽成率 <input type="number" id="commissionInput" step="0.1" value="${(commission*100).toFixed(2)}"> %</label>
+      <label>金流費率 <input type="number" id="cashFeeInput" step="0.1" value="${(state.cashFeeRate*100).toFixed(2)}"> %</label>
+      <span>單位淨利 = GP(單價) − GMV(單價)×抽成率 − GMV(單價)×金流費率　｜　NGP1 = 單位淨利 × 銷售數量　｜　目標NGP1 = 單位淨利 × 目標數量</span>
+    </div>
+    <div class="section">
+      <h2>商品明細登錄（追蹤專案品銷量貢獻的NGP1，GMV、GP 請填「每一件」的單價/單位毛利）</h2>
+      <table>
+        <thead><tr><th>月份</th><th>產品名稱</th><th>銷售數量</th><th>目標數量</th><th>GMV(單價)</th><th>GP(單價)</th><th>GP%</th><th>NGP1</th><th>目標NGP1</th><th></th></tr></thead>
+        <tbody id="productBody">${productRowsHtml}</tbody>
+      </table>
+      <button class="btn btn-add" id="addRowBtn">+ 新增商品列</button>
+    </div>
+    <div class="section">
+      <h2>其他營收登錄（非專案品，直接填一整包的月度總額）</h2>
+      <table>
+        <thead><tr><th>月份</th><th>GMV(總額)</th><th>GP(總額)</th><th>NGP1(自動)</th></tr></thead>
+        <tbody id="otherRevenueBody">${otherRowsHtml}</tbody>
+      </table>
+    </div>
+    <div class="section">
+      <h2>月度加總（自動計算，已包含商品明細＋其他營收）</h2>
+      <table>
+        <thead><tr><th>月份</th><th>目標NGP1</th><th>銷售數量</th><th>GMV合計</th><th>GP合計</th><th>GP%</th><th>實際NGP1</th><th>達成率</th></tr></thead>
+        <tbody>${summaryRowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById("commissionInput").onchange = (e) => {
+    const v = parseFloat(e.target.value);
+    state.commission[store] = isNaN(v) ? 0 : v / 100;
+    saveState();
+  };
+  document.getElementById("cashFeeInput").onchange = (e) => {
+    const v = parseFloat(e.target.value);
+    state.cashFeeRate = isNaN(v) ? 0 : v / 100;
+    saveState();
+  };
+  document.getElementById("addRowBtn").onclick = () => {
+    state.products[store].push({ id: uid(), month: MONTHS[0], name: "", qty: null, targetQty: null, gmv: null, gp: null });
+    saveState();
+  };
+  container.querySelectorAll("#productBody tr").forEach(tr => {
+    const id = tr.dataset.id;
+
+    function refreshRowReadonlyCells() {
+      const p = state.products[store].find(x => x.id === id);
+      if (!p) return;
+      const gpPct = productGPPct(p);
+      const ngp1 = productNGP1(p, store);
+      const targetNgp1 = productTargetNGP1(p, store);
+      tr.querySelector('[data-cell="gpPct"]').textContent = fmtPct(gpPct);
+      tr.querySelector('[data-cell="ngp1"]').textContent = fmtMoney(ngp1);
+      tr.querySelector('[data-cell="targetNgp1"]').textContent = targetNgp1===null ? "—" : fmtMoney(targetNgp1);
+    }
+
+    tr.querySelectorAll("[data-field]").forEach(input => {
+      const field = input.dataset.field;
+      if (field === "month") {
+        // 下拉選單一次選定即可，直接完整重繪（月度加總表需要跟著變動）
+        input.addEventListener("change", (e) => {
+          const p = state.products[store].find(x => x.id === id);
+          if (!p) return;
+          p.month = e.target.value;
+          saveState();
+        });
+        return;
+      }
+      // 打字過程中：只更新資料 + 本列唯讀欄位，不重繪整頁，避免游標跳走
+      input.addEventListener("input", (e) => {
+        const p = state.products[store].find(x => x.id === id);
+        if (!p) return;
+        if (field === "name") p[field] = e.target.value;
+        else p[field] = e.target.value === "" ? null : Number(e.target.value);
+        saveStateQuiet();
+        refreshRowReadonlyCells();
+      });
+      // 離開欄位時：立即送出雲端＋完整重繪，讓月度加總表 / 總覽同步更新
+      input.addEventListener("blur", () => {
+        saveState();
+      });
+    });
+    tr.querySelector('[data-action="del"]').onclick = () => {
+      state.products[store] = state.products[store].filter(x => x.id !== id);
+      saveState();
+    };
+  });
+  container.querySelectorAll("[data-target-idx]").forEach(input => {
+    input.addEventListener("change", (e) => {
+      const idx = Number(input.dataset.targetIdx);
+      const v = e.target.value === "" ? 0 : Number(e.target.value);
+      state.targets[store][idx] = v;
+      saveState();
+    });
+  });
+
+  container.querySelectorAll("#otherRevenueBody tr").forEach(tr => {
+    const month = tr.dataset.otherMonth;
+    tr.querySelectorAll("[data-other-field]").forEach(input => {
+      const field = input.dataset.otherField;
+      input.addEventListener("input", (e) => {
+        state.otherRevenue[store][month][field] = e.target.value === "" ? null : Number(e.target.value);
+        saveStateQuiet();
+        tr.querySelector('[data-other-cell="ngp1"]').textContent = fmtMoney(otherRevenueNGP1(store, month));
+      });
+      input.addEventListener("blur", () => {
+        saveState();
+      });
+    });
+  });
+}
+
+function renderDreamTab(container) {
+  const summary = dreamMonthlySummary();
+  const rowsHtml = summary.map((r, i) => `
+    <tr data-row-month="${r.month}">
+      <td>${r.month}</td>
+      <td class="num-cell"><input type="number" data-target-idx="${i}" value="${r.target ?? ""}"></td>
+      <td class="num-cell"><input type="number" data-gmv-month="${r.month}" value="${r.gmv ?? ""}" placeholder="0"></td>
+      <td class="num-cell readonly-cell" data-cell="ngp1">${fmtMoney(r.ngp1)}</td>
+      <td class="num-cell ${rateClass(r.rate)}" data-cell="rate">${fmtPct(r.rate)}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <div class="settings-row">
+      <label>NGP1 比例 <input type="number" id="dreamRateInput" step="0.1" value="${(state.dreamRate*100).toFixed(2)}"> %</label>
+      <span>NGP1 = GMV × 比例</span>
+    </div>
+    <div class="section">
+      <h2>月度登錄</h2>
+      <table>
+        <thead><tr><th>月份</th><th>目標NGP1</th><th>GMV(輸入)</th><th>實際NGP1(自動)</th><th>達成率</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById("dreamRateInput").onchange = (e) => {
+    const v = parseFloat(e.target.value);
+    state.dreamRate = isNaN(v) ? 0 : v / 100;
+    saveState();
+  };
+  container.querySelectorAll("[data-target-idx]").forEach(input => {
+    input.addEventListener("change", (e) => {
+      const idx = Number(input.dataset.targetIdx);
+      const v = e.target.value === "" ? 0 : Number(e.target.value);
+      state.targets[DREAM_STORE][idx] = v;
+      saveState();
+    });
+  });
+  container.querySelectorAll("[data-gmv-month]").forEach(input => {
+    const month = input.dataset.gmvMonth;
+    const tr = input.closest("tr");
+    input.addEventListener("input", (e) => {
+      state.dreamGmv[month] = e.target.value === "" ? null : Number(e.target.value);
+      saveStateQuiet();
+      const gmv = state.dreamGmv[month];
+      const ngp1 = gmv ? gmv * state.dreamRate : 0;
+      const target = state.targets[DREAM_STORE][MONTHS.indexOf(month)];
+      const rate = target ? ngp1 / target : null;
+      tr.querySelector('[data-cell="ngp1"]').textContent = fmtMoney(ngp1);
+      const rateCell = tr.querySelector('[data-cell="rate"]');
+      rateCell.textContent = fmtPct(rate);
+      rateCell.className = "num-cell " + rateClass(rate);
+    });
+    input.addEventListener("blur", () => {
+      saveState();
+    });
+  });
+}
+
+function renderAll() {
+  renderTabs();
+
+  const panelsEl = document.getElementById("panels");
+  panelsEl.innerHTML = "";
+  const div = document.createElement("div");
+  div.className = "panel active";
+  panelsEl.appendChild(div);
+
+  if (activeTab === "overview") renderOverview(div);
+  else if (activeTab === DREAM_STORE) renderDreamTab(div);
+  else renderBeutiiTab(div, activeTab);
+}
+
+document.getElementById("resetBtn").onclick = () => {
+  if (confirm("確定要清除所有已輸入的資料嗎？這會影響所有正在使用這個網址的人，此動作無法復原。")) {
+    state = defaultState();
+    saveState();
+  }
+};
+
+initCloud();
+</script>
+</body>
+</html>
