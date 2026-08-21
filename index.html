@@ -106,6 +106,12 @@
   }
   .strategy-del { margin-top:8px; }
   .strategy-add { margin-top:14px; }
+
+  .item-card { border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:14px; }
+  .item-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .item-name-input { flex:1; font-weight:600; font-size:14px; }
+  .item-add { margin-bottom:14px; }
+  .entry-add { margin-top:8px; }
 </style>
 </head>
 <body>
@@ -302,8 +308,8 @@ function barColor(v) {
 }
 
 // ---------- 計算邏輯 ----------
-// GMV(單價)、GP(單價) 是「每一件商品」的金額，NGP1 分別用銷售數量／目標數量去乘，
-// 兩者共用同一組單位經濟效益，只是乘上各自的數量。
+// 活動價、活動價GP 是「每一件商品」的金額，只用來計算目標NGP1（跟目標數量連動）。
+// 實際NGP1改用 SR（銷額）與 GP actual（實際GP）計算，跟活動價/活動價GP無關。
 function unitNGP1(p, store) {
   const commission = state.commission[store] ?? 0;
   const fee = state.cashFeeRate ?? 0;
@@ -311,10 +317,13 @@ function unitNGP1(p, store) {
   const unitGp = Number(p.gp) || 0;
   return unitGp - unitGmv * commission - unitGmv * fee;
 }
-// 實際NGP1：跟「銷售數量」連動
+// 實際NGP1：GP actual − SR×抽成率 − SR×金流費率
 function productNGP1(p, store) {
-  const qty = Number(p.qty) || 0;
-  return qty * unitNGP1(p, store);
+  const commission = state.commission[store] ?? 0;
+  const fee = state.cashFeeRate ?? 0;
+  const sr = Number(p.sr) || 0;
+  const gpActual = Number(p.gpActual) || 0;
+  return gpActual - sr * commission - sr * fee;
 }
 // 目標NGP1：跟「目標數量」連動（用同一個單位淨利，不需要先有銷售數量）
 function productTargetNGP1(p, store) {
@@ -343,9 +352,19 @@ function otherRevenueNGP1(store, month) {
   return gp - gmv * commission - gmv * fee;
 }
 
+// 商品品項 -> 底下每個業務員各自的登錄列，攤平成一份清單方便加總
+function allEntriesForStore(store) {
+  const items = state.products[store] || [];
+  const out = [];
+  items.forEach(item => {
+    (item.entries || []).forEach(e => out.push(e));
+  });
+  return out;
+}
+
 function beutiiMonthlySummary(store) {
   return MONTHS.map((month, i) => {
-    const rows = (state.products[store] || []).filter(p => p.month === month);
+    const rows = allEntriesForStore(store).filter(p => p.month === month);
     const productQty = rows.reduce((s, p) => s + (Number(p.qty) || 0), 0);
     const productGmv = rows.reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.gmv) || 0), 0);
     const productGp = rows.reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.gp) || 0), 0);
@@ -550,25 +569,44 @@ function renderOverview(container) {
 
 function renderBeutiiTab(container, store) {
   const commission = state.commission[store];
-  const rows = state.products[store] || [];
+  const items = state.products[store] || [];
 
-  const productRowsHtml = rows.map(p => {
-    const gpPct = productGPPct(p);
-    const ngp1 = productNGP1(p, store);
-    const targetNgp1 = productTargetNGP1(p, store);
+  const itemCardsHtml = items.map(item => {
+    const entryRowsHtml = (item.entries || []).map(p => {
+      const gpPct = productGPPct(p);
+      const ngp1 = productNGP1(p, store);
+      const targetNgp1 = productTargetNGP1(p, store);
+      const rate = (targetNgp1 === null || targetNgp1 === 0) ? null : (ngp1 / targetNgp1);
+      return `
+        <tr data-id="${p.id}">
+          <td><select data-field="month">${MONTHS.map(m => `<option value="${m}" ${p.month===m?"selected":""}>${m}</option>`).join("")}</select></td>
+          <td><input type="text" data-field="salesperson" value="${escapeHtml(p.salesperson)}" placeholder="業務員"></td>
+          <td class="num-cell"><input type="number" data-field="qty" value="${p.qty ?? ""}" placeholder="0"></td>
+          <td class="num-cell"><input type="number" data-field="targetQty" value="${p.targetQty ?? ""}" placeholder="0"></td>
+          <td class="num-cell"><input type="number" data-field="gmv" value="${p.gmv ?? ""}" placeholder="0"></td>
+          <td class="num-cell"><input type="number" data-field="gp" value="${p.gp ?? ""}" placeholder="0"></td>
+          <td class="readonly-cell num-cell" data-cell="gpPct">${fmtPct(gpPct)}</td>
+          <td class="num-cell"><input type="number" data-field="sr" value="${p.sr ?? ""}" placeholder="0"></td>
+          <td class="num-cell"><input type="number" data-field="gpActual" value="${p.gpActual ?? ""}" placeholder="0"></td>
+          <td class="readonly-cell num-cell" data-cell="targetNgp1">${targetNgp1===null ? "—" : fmtMoney(targetNgp1)}</td>
+          <td class="readonly-cell num-cell" data-cell="ngp1">${fmtMoney(ngp1)}</td>
+          <td class="readonly-cell num-cell ${rate===null ? "" : rateClass(rate)}" data-cell="rate">${rate===null ? "—" : fmtPct(rate)}</td>
+          <td><button class="del-btn" data-action="del">✕</button></td>
+        </tr>
+      `;
+    }).join("");
     return `
-      <tr data-id="${p.id}">
-        <td><select data-field="month">${MONTHS.map(m => `<option value="${m}" ${p.month===m?"selected":""}>${m}</option>`).join("")}</select></td>
-        <td><input type="text" data-field="name" value="${escapeHtml(p.name)}" placeholder="產品名稱"></td>
-        <td class="num-cell"><input type="number" data-field="qty" value="${p.qty ?? ""}" placeholder="0"></td>
-        <td class="num-cell"><input type="number" data-field="targetQty" value="${p.targetQty ?? ""}" placeholder="0"></td>
-        <td class="num-cell"><input type="number" data-field="gmv" value="${p.gmv ?? ""}" placeholder="0"></td>
-        <td class="num-cell"><input type="number" data-field="gp" value="${p.gp ?? ""}" placeholder="0"></td>
-        <td class="readonly-cell num-cell" data-cell="gpPct">${fmtPct(gpPct)}</td>
-        <td class="readonly-cell num-cell" data-cell="ngp1">${fmtMoney(ngp1)}</td>
-        <td class="readonly-cell num-cell" data-cell="targetNgp1">${targetNgp1===null ? "—" : fmtMoney(targetNgp1)}</td>
-        <td><button class="del-btn" data-action="del">✕</button></td>
-      </tr>
+      <div class="item-card" data-item-id="${item.id}">
+        <div class="item-header">
+          <input class="item-name-input" data-item-field="name" value="${escapeHtml(item.name)}" placeholder="品項名稱">
+          <button class="btn btn-danger" data-action="del-item">刪除品項</button>
+        </div>
+        <table>
+          <thead><tr><th>月份</th><th>業務員</th><th>銷售數量</th><th>目標數量</th><th>活動價</th><th>活動價GP</th><th>GP%</th><th>SR</th><th>GP actual</th><th>目標NGP1</th><th>NGP1</th><th>達成率</th><th></th></tr></thead>
+          <tbody data-entries-body="${item.id}">${entryRowsHtml}</tbody>
+        </table>
+        <button class="btn entry-add" data-action="add-entry">+ 新增業務員</button>
+      </div>
     `;
   }).join("");
 
@@ -603,15 +641,12 @@ function renderBeutiiTab(container, store) {
     <div class="settings-row">
       <label>抽成率 <input type="number" id="commissionInput" step="0.1" value="${(commission*100).toFixed(2)}"> %</label>
       <label>金流費率 <input type="number" id="cashFeeInput" step="0.1" value="${(state.cashFeeRate*100).toFixed(2)}"> %</label>
-      <span>單位淨利 = GP(單價) − GMV(單價)×抽成率 − GMV(單價)×金流費率　｜　NGP1 = 單位淨利 × 銷售數量　｜　目標NGP1 = 單位淨利 × 目標數量</span>
+      <span>目標NGP1 = (活動價GP − 活動價×抽成率 − 活動價×金流費率) × 目標數量　｜　NGP1 = GP actual − SR×抽成率 − SR×金流費率　｜　達成率 = NGP1 ÷ 目標NGP1</span>
     </div>
     <div class="section">
       <h2>商品明細登錄（追蹤專案品銷量貢獻的NGP1，GMV、GP 請填「每一件」的單價/單位毛利）</h2>
-      <table>
-        <thead><tr><th>月份</th><th>產品名稱</th><th>銷售數量</th><th>目標數量</th><th>GMV(單價)</th><th>GP(單價)</th><th>GP%</th><th>NGP1</th><th>目標NGP1</th><th></th></tr></thead>
-        <tbody id="productBody">${productRowsHtml}</tbody>
-      </table>
-      <button class="btn btn-add" id="addRowBtn">+ 新增商品列</button>
+      <button class="btn item-add" id="addItemBtn">+ 新增品項</button>
+      <div id="itemCards">${itemCardsHtml}</div>
     </div>
     <div class="section">
       <h2>其他營收登錄（非專案品，直接填一整包的月度總額）</h2>
@@ -639,54 +674,97 @@ function renderBeutiiTab(container, store) {
     state.cashFeeRate = isNaN(v) ? 0 : v / 100;
     saveState();
   };
-  document.getElementById("addRowBtn").onclick = () => {
-    state.products[store].push({ id: uid(), month: MONTHS[0], name: "", qty: null, targetQty: null, gmv: null, gp: null });
+  document.getElementById("addItemBtn").onclick = () => {
+    state.products[store].push({ id: uid(), name: "", entries: [] });
     saveState();
   };
-  container.querySelectorAll("#productBody tr").forEach(tr => {
-    const id = tr.dataset.id;
 
-    function refreshRowReadonlyCells() {
-      const p = state.products[store].find(x => x.id === id);
-      if (!p) return;
-      const gpPct = productGPPct(p);
-      const ngp1 = productNGP1(p, store);
-      const targetNgp1 = productTargetNGP1(p, store);
-      tr.querySelector('[data-cell="gpPct"]').textContent = fmtPct(gpPct);
-      tr.querySelector('[data-cell="ngp1"]').textContent = fmtMoney(ngp1);
-      tr.querySelector('[data-cell="targetNgp1"]').textContent = targetNgp1===null ? "—" : fmtMoney(targetNgp1);
-    }
+  function findEntry(itemId, entryId) {
+    const item = (state.products[store] || []).find(x => x.id === itemId);
+    if (!item) return null;
+    const entry = (item.entries || []).find(x => x.id === entryId);
+    if (!entry) return null;
+    return { item, entry };
+  }
 
-    tr.querySelectorAll("[data-field]").forEach(input => {
-      const field = input.dataset.field;
-      if (field === "month") {
-        // 下拉選單一次選定即可，直接完整重繪（月度加總表需要跟著變動）
-        input.addEventListener("change", (e) => {
-          const p = state.products[store].find(x => x.id === id);
-          if (!p) return;
-          p.month = e.target.value;
-          saveState();
-        });
-        return;
-      }
-      // 打字過程中：只更新資料 + 本列唯讀欄位，不重繪整頁，避免游標跳走
-      input.addEventListener("input", (e) => {
-        const p = state.products[store].find(x => x.id === id);
-        if (!p) return;
-        if (field === "name") p[field] = e.target.value;
-        else p[field] = e.target.value === "" ? null : Number(e.target.value);
-        saveStateQuiet();
-        refreshRowReadonlyCells();
-      });
-      // 離開欄位時：立即送出雲端＋完整重繪，讓月度加總表 / 總覽同步更新
-      input.addEventListener("blur", () => {
-        saveState();
-      });
+  container.querySelectorAll(".item-card").forEach(card => {
+    const itemId = card.dataset.itemId;
+
+    card.querySelector('[data-item-field="name"]').addEventListener("input", (e) => {
+      const item = (state.products[store] || []).find(x => x.id === itemId);
+      if (!item) return;
+      item.name = e.target.value;
+      saveStateQuiet();
     });
-    tr.querySelector('[data-action="del"]').onclick = () => {
-      state.products[store] = state.products[store].filter(x => x.id !== id);
+    card.querySelector('[data-item-field="name"]').addEventListener("blur", () => {
+      saveState();
+    });
+    card.querySelector('[data-action="del-item"]').onclick = () => {
+      state.products[store] = state.products[store].filter(x => x.id !== itemId);
       saveState();
     };
+    card.querySelector('[data-action="add-entry"]').onclick = () => {
+      const item = (state.products[store] || []).find(x => x.id === itemId);
+      if (!item) return;
+      item.entries = item.entries || [];
+      item.entries.push({ id: uid(), month: MONTHS[0], salesperson: "", qty: null, targetQty: null, gmv: null, gp: null, sr: null, gpActual: null });
+      saveState();
+    };
+
+    card.querySelectorAll(`[data-entries-body="${itemId}"] tr`).forEach(tr => {
+      const entryId = tr.dataset.id;
+
+      function refreshRowReadonlyCells() {
+        const found = findEntry(itemId, entryId);
+        if (!found) return;
+        const p = found.entry;
+        const gpPct = productGPPct(p);
+        const ngp1 = productNGP1(p, store);
+        const targetNgp1 = productTargetNGP1(p, store);
+        const rate = (targetNgp1 === null || targetNgp1 === 0) ? null : (ngp1 / targetNgp1);
+        tr.querySelector('[data-cell="gpPct"]').textContent = fmtPct(gpPct);
+        tr.querySelector('[data-cell="targetNgp1"]').textContent = targetNgp1===null ? "—" : fmtMoney(targetNgp1);
+        tr.querySelector('[data-cell="ngp1"]').textContent = fmtMoney(ngp1);
+        const rateCell = tr.querySelector('[data-cell="rate"]');
+        rateCell.textContent = rate===null ? "—" : fmtPct(rate);
+        rateCell.classList.remove("rate-good", "rate-warn", "rate-bad");
+        if (rate !== null) rateCell.classList.add(rateClass(rate));
+      }
+
+      tr.querySelectorAll("[data-field]").forEach(input => {
+        const field = input.dataset.field;
+        if (field === "month") {
+          // 下拉選單一次選定即可，直接完整重繪（月度加總表需要跟著變動）
+          input.addEventListener("change", (e) => {
+            const found = findEntry(itemId, entryId);
+            if (!found) return;
+            found.entry.month = e.target.value;
+            saveState();
+          });
+          return;
+        }
+        // 打字過程中：只更新資料 + 本列唯讀欄位，不重繪整頁，避免游標跳走
+        input.addEventListener("input", (e) => {
+          const found = findEntry(itemId, entryId);
+          if (!found) return;
+          const p = found.entry;
+          if (field === "salesperson") p[field] = e.target.value;
+          else p[field] = e.target.value === "" ? null : Number(e.target.value);
+          saveStateQuiet();
+          refreshRowReadonlyCells();
+        });
+        // 離開欄位時：立即送出雲端＋完整重繪，讓月度加總表 / 總覽同步更新
+        input.addEventListener("blur", () => {
+          saveState();
+        });
+      });
+      tr.querySelector('[data-action="del"]').onclick = () => {
+        const item = (state.products[store] || []).find(x => x.id === itemId);
+        if (!item) return;
+        item.entries = (item.entries || []).filter(x => x.id !== entryId);
+        saveState();
+      };
+    });
   });
   container.querySelectorAll("[data-target-idx]").forEach(input => {
     input.addEventListener("change", (e) => {
