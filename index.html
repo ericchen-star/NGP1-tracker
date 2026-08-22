@@ -163,7 +163,7 @@
   <div id="panels"></div>
 
   <div class="footer-actions">
-    <button class="btn btn-danger" id="resetBtn">清除全部資料（會影響所有人）</button>
+    <button class="btn btn-danger" id="resetBtn" style="display:none;">清除全部資料（會影響所有人）</button>
   </div>
 </div>
 
@@ -903,6 +903,7 @@ function renderAll() {
 }
 
 document.getElementById("resetBtn").onclick = () => {
+  if (!isSuperAdmin(currentUserEmail)) return;
   if (confirm("確定要清除所有已輸入的資料嗎？這會影響所有正在使用這個網址的人，此動作無法復原。")) {
     state = defaultState();
     saveState();
@@ -914,7 +915,13 @@ const ALLOWED_EMAIL_DOMAIN = "@beutii.com.tw";
 function isAllowedEmail(email) {
   return !!email && email.toLowerCase().endsWith(ALLOWED_EMAIL_DOMAIN);
 }
+// 「清除全部資料」按鈕僅限這個帳號可見、可用
+const SUPER_ADMIN_EMAIL = "eric_chen@beutii.com.tw";
+function isSuperAdmin(email) {
+  return !!email && email.toLowerCase() === SUPER_ADMIN_EMAIL;
+}
 
+let currentUserEmail = null;
 let appStarted = false;
 let blockedMessage = null;
 
@@ -929,7 +936,9 @@ function showLoginGate(message) {
 function showApp(session) {
   document.getElementById("loginGate").style.display = "none";
   document.getElementById("appWrap").style.display = "";
-  document.getElementById("userEmail").textContent = session.user.email;
+  currentUserEmail = session.user.email;
+  document.getElementById("userEmail").textContent = currentUserEmail;
+  document.getElementById("resetBtn").style.display = isSuperAdmin(currentUserEmail) ? "" : "none";
   if (!appStarted) {
     appStarted = true;
     initCloud();
