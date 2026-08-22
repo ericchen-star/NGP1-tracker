@@ -112,14 +112,51 @@
   .item-name-input { flex:1; font-weight:600; font-size:14px; }
   .item-add { margin-bottom:14px; }
   .entry-add { margin-top:8px; }
+
+  .login-gate {
+    position:fixed; inset:0; background:var(--bg); display:none;
+    align-items:center; justify-content:center; z-index:1000; padding:20px;
+  }
+  .login-card {
+    max-width:360px; width:100%; border:1px solid var(--border); border-radius:16px;
+    padding:32px 28px; text-align:center; box-shadow:0 4px 24px rgba(0,0,0,0.06);
+  }
+  .login-card h2 { font-size:17px; margin:0 0 8px; }
+  .login-card p { font-size:13px; color:var(--text-secondary); margin:0 0 20px; }
+  .btn-google {
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    width:100%; padding:10px 16px; border-radius:8px; border:1px solid var(--border);
+    background:#fff; font-size:14px; font-weight:600; cursor:pointer; color:var(--text-primary);
+  }
+  .btn-google:hover { background:var(--surface-secondary); }
+  .login-error { color:var(--red); font-size:12px; margin-top:16px; text-align:left; line-height:1.5; }
+  .user-bar {
+    display:none; align-items:center; justify-content:flex-end; gap:12px;
+    margin-bottom:10px; font-size:12px; color:var(--text-secondary);
+  }
+  .user-bar .btn { padding:4px 10px; font-size:12px; }
 </style>
 </head>
 <body>
 <h2 class="sr-only">門市 NGP1 目標追蹤工具（雲端共編版），可直接在網頁上輸入各店商品明細與月度資料，多人同時編輯資料會即時同步，自動計算 NGP1 達成率並以進度條與圖表呈現</h2>
-<div class="wrap">
+
+<div class="login-gate" id="loginGate">
+  <div class="login-card">
+    <h2>門市 NGP1 目標追蹤</h2>
+    <p>僅限 beutii.com.tw 網域的 Google 帳號登入使用</p>
+    <button class="btn-google" id="googleLoginBtn">使用 Google 帳號登入</button>
+    <p class="login-error" id="loginError" style="display:none;"></p>
+  </div>
+</div>
+
+<div class="wrap" id="appWrap" style="display:none;">
+  <div class="user-bar" id="userBar">
+    <span id="userEmail"></span>
+    <button class="btn" id="logoutBtn">登出</button>
+  </div>
   <h1>門市 NGP1 目標追蹤（雲端共編版）</h1>
   <div class="meta"><span class="sync-dot" id="syncDot"></span><span id="syncText">連線中…</span></div>
-  <div class="meta-sub">期間：2026年下半年（7–12月）　｜　資料存在雲端資料庫，任何人打開這個網址都能一起編輯、即時同步</div>
+  <div class="meta-sub">期間：2026年下半年（7–12月）　｜　資料存在雲端資料庫，僅限 beutii.com.tw 網域帳號登入後可一起編輯、即時同步</div>
 
   <div class="tabs" id="tabs"></div>
 
@@ -872,7 +909,70 @@ document.getElementById("resetBtn").onclick = () => {
   }
 };
 
-initCloud();
+// ---------- 登入閘門（僅限 beutii.com.tw 網域的 Google 帳號） ----------
+const ALLOWED_EMAIL_DOMAIN = "@beutii.com.tw";
+function isAllowedEmail(email) {
+  return !!email && email.toLowerCase().endsWith(ALLOWED_EMAIL_DOMAIN);
+}
+
+let appStarted = false;
+let blockedMessage = null;
+
+function showLoginGate(message) {
+  document.getElementById("loginGate").style.display = "flex";
+  document.getElementById("appWrap").style.display = "none";
+  const errEl = document.getElementById("loginError");
+  if (message) { errEl.textContent = message; errEl.style.display = "block"; }
+  else { errEl.style.display = "none"; }
+}
+
+function showApp(session) {
+  document.getElementById("loginGate").style.display = "none";
+  document.getElementById("appWrap").style.display = "";
+  document.getElementById("userEmail").textContent = session.user.email;
+  if (!appStarted) {
+    appStarted = true;
+    initCloud();
+  }
+}
+
+async function handleAuthState(session) {
+  if (!session) {
+    showLoginGate(blockedMessage);
+    return;
+  }
+  const email = session.user && session.user.email;
+  if (!isAllowedEmail(email)) {
+    blockedMessage = "此帳號（" + (email || "未知") + "）不在允許的名單內，僅限 beutii.com.tw 網域的帳號才能使用，請改用其他帳號登入。";
+    await sb.auth.signOut();
+    return;
+  }
+  blockedMessage = null;
+  showApp(session);
+}
+
+document.getElementById("googleLoginBtn").onclick = async () => {
+  blockedMessage = null;
+  await sb.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      queryParams: { hd: "beutii.com.tw", prompt: "select_account" },
+      redirectTo: window.location.origin + window.location.pathname,
+    },
+  });
+};
+
+document.getElementById("logoutBtn").onclick = async () => {
+  await sb.auth.signOut();
+};
+
+sb.auth.onAuthStateChange((_event, session) => {
+  handleAuthState(session);
+});
+
+sb.auth.getSession().then(({ data }) => {
+  handleAuthState(data.session);
+});
 </script>
 </body>
 </html>
