@@ -355,22 +355,27 @@ function barColor(v) {
 // ---------- 計算邏輯 ----------
 // 活動價、活動價GP 是「每一件商品」的金額，只用來計算目標NGP1（跟目標數量連動）。
 // 實際NGP1改用 SR（銷額）與 GP actual（實際GP）計算，跟活動價/活動價GP無關。
+// 活動價、SR 帶入公式（扣項基礎、GP%分母）前，先還原成未稅金額（稅率5%）。
+const TAX_RATE = 0.05;
+function untax(v) {
+  return (Number(v) || 0) / (1 + TAX_RATE);
+}
 function unitNGP1(p, store) {
   const commission = state.commission[store] ?? 0;
   const fee = state.cashFeeRate ?? 0;
   const oes1 = state.oes1Rate[store] ?? 0;
-  const unitGmv = Number(p.gmv) || 0;
+  const unitGmvUntaxed = untax(p.gmv);
   const unitGp = Number(p.gp) || 0;
-  return unitGp - unitGmv * commission - unitGmv * fee - unitGmv * oes1;
+  return unitGp - unitGmvUntaxed * commission - unitGmvUntaxed * fee - unitGmvUntaxed * oes1;
 }
-// 實際NGP1：GP actual − SR×抽成率 − SR×金流費率 − SR×OES1固定費用
+// 實際NGP1：GP actual − SR(未稅)×抽成率 − SR(未稅)×金流費率 − SR(未稅)×OES1固定費用
 function productNGP1(p, store) {
   const commission = state.commission[store] ?? 0;
   const fee = state.cashFeeRate ?? 0;
   const oes1 = state.oes1Rate[store] ?? 0;
-  const sr = Number(p.sr) || 0;
+  const srUntaxed = untax(p.sr);
   const gpActual = Number(p.gpActual) || 0;
-  return gpActual - sr * commission - sr * fee - sr * oes1;
+  return gpActual - srUntaxed * commission - srUntaxed * fee - srUntaxed * oes1;
 }
 // 目標NGP1：跟「目標數量」連動（用同一個單位淨利，不需要先有銷售數量）
 function productTargetNGP1(p, store) {
@@ -379,10 +384,10 @@ function productTargetNGP1(p, store) {
   return targetQty * unitNGP1(p, store);
 }
 function productGPPct(p) {
-  const unitGmv = Number(p.gmv) || 0;
+  const unitGmvUntaxed = untax(p.gmv);
   const unitGp = Number(p.gp) || 0;
-  if (!unitGmv) return null;
-  return unitGp / unitGmv;
+  if (!unitGmvUntaxed) return null;
+  return unitGp / unitGmvUntaxed;
 }
 
 // 其他營收（一整包金額，不逐筆列商品）：直接填當月 GMV、GP 總額，換算NGP1的方式跟商品明細一致
@@ -691,7 +696,7 @@ function renderBeutiiTab(container, store) {
       <label>抽成率 <input type="number" id="commissionInput" step="0.1" value="${(commission*100).toFixed(2)}"> %</label>
       <label>金流費率 <input type="number" id="cashFeeInput" step="0.1" value="${(state.cashFeeRate*100).toFixed(2)}"> %</label>
       <label>OES1固定費用 <input type="number" id="oes1Input" step="0.1" value="${(oes1Rate*100).toFixed(2)}"> %</label>
-      <span>目標NGP1 = (活動價GP − 活動價×抽成率 − 活動價×金流費率 − 活動價×OES1固定費用) × 目標數量　｜　NGP1 = GP actual − SR×抽成率 − SR×金流費率 − SR×OES1固定費用　｜　達成率 = NGP1 ÷ 目標NGP1</span>
+      <span>活動價、SR 代入公式前先還原未稅（÷1.05）　｜　目標NGP1 = (活動價GP − 未稅活動價×抽成率 − 未稅活動價×金流費率 − 未稅活動價×OES1固定費用) × 目標數量　｜　NGP1 = GP actual − 未稅SR×抽成率 − 未稅SR×金流費率 − 未稅SR×OES1固定費用　｜　達成率 = NGP1 ÷ 目標NGP1</span>
     </div>
     <div class="section">
       <h2>商品明細登錄（追蹤專案品銷量貢獻的NGP1，GMV、GP 請填「每一件」的單價/單位毛利）</h2>
