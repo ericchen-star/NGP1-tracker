@@ -190,6 +190,12 @@ const DEFAULT_COMMISSION = {
   "Beutii-信義統一店": 0.105,
 };
 
+const DEFAULT_OES1 = {
+  "Beutii-三創店": 0.142,
+  "Beutii-新莊宏匯店": 0.122,
+  "Beutii-信義統一店": 0.127,
+};
+
 const DEFAULT_STRATEGY_NOTES = [
   { title: "提高品牌店 SR，掌握人流", text: "提高品牌店SR，維持小檔留單，大檔call客衝刺，並且找機會丟百貨鋪底到北部的社區群組裡。" },
   { title: "毛利結構目標", text: "提高毛利結構，三創店、統一店維持30%，宏匯店27%。" },
@@ -212,6 +218,7 @@ function defaultState() {
   return {
     targets: JSON.parse(JSON.stringify(DEFAULT_TARGETS)),
     commission: { ...DEFAULT_COMMISSION },
+    oes1Rate: { ...DEFAULT_OES1 },
     cashFeeRate: 0.02,
     dreamRate: 0.03,
     products,
@@ -227,6 +234,7 @@ function mergeWithDefaults(parsed) {
   return { ...base, ...parsed,
     targets: { ...base.targets, ...(parsed.targets||{}) },
     commission: { ...base.commission, ...(parsed.commission||{}) },
+    oes1Rate: { ...base.oes1Rate, ...(parsed.oes1Rate||{}) },
     products: { ...base.products, ...(parsed.products||{}) },
     otherRevenue: { ...base.otherRevenue, ...(parsed.otherRevenue||{}) },
     dreamGmv: { ...base.dreamGmv, ...(parsed.dreamGmv||{}) },
@@ -350,17 +358,19 @@ function barColor(v) {
 function unitNGP1(p, store) {
   const commission = state.commission[store] ?? 0;
   const fee = state.cashFeeRate ?? 0;
+  const oes1 = state.oes1Rate[store] ?? 0;
   const unitGmv = Number(p.gmv) || 0;
   const unitGp = Number(p.gp) || 0;
-  return unitGp - unitGmv * commission - unitGmv * fee;
+  return unitGp - unitGmv * commission - unitGmv * fee - unitGmv * oes1;
 }
-// 實際NGP1：GP actual − SR×抽成率 − SR×金流費率
+// 實際NGP1：GP actual − SR×抽成率 − SR×金流費率 − SR×OES1固定費用
 function productNGP1(p, store) {
   const commission = state.commission[store] ?? 0;
   const fee = state.cashFeeRate ?? 0;
+  const oes1 = state.oes1Rate[store] ?? 0;
   const sr = Number(p.sr) || 0;
   const gpActual = Number(p.gpActual) || 0;
-  return gpActual - sr * commission - sr * fee;
+  return gpActual - sr * commission - sr * fee - sr * oes1;
 }
 // 目標NGP1：跟「目標數量」連動（用同一個單位淨利，不需要先有銷售數量）
 function productTargetNGP1(p, store) {
@@ -383,10 +393,11 @@ function otherRevenueEntry(store, month) {
 function otherRevenueNGP1(store, month) {
   const commission = state.commission[store] ?? 0;
   const fee = state.cashFeeRate ?? 0;
+  const oes1 = state.oes1Rate[store] ?? 0;
   const entry = otherRevenueEntry(store, month);
   const gmv = Number(entry.gmv) || 0;
   const gp = Number(entry.gp) || 0;
-  return gp - gmv * commission - gmv * fee;
+  return gp - gmv * commission - gmv * fee - gmv * oes1;
 }
 
 // 商品品項 -> 底下每個業務員各自的登錄列，攤平成一份清單方便加總
@@ -606,6 +617,7 @@ function renderOverview(container) {
 
 function renderBeutiiTab(container, store) {
   const commission = state.commission[store];
+  const oes1Rate = state.oes1Rate[store] ?? 0;
   const items = state.products[store] || [];
 
   const itemCardsHtml = items.map(item => {
@@ -678,7 +690,8 @@ function renderBeutiiTab(container, store) {
     <div class="settings-row">
       <label>抽成率 <input type="number" id="commissionInput" step="0.1" value="${(commission*100).toFixed(2)}"> %</label>
       <label>金流費率 <input type="number" id="cashFeeInput" step="0.1" value="${(state.cashFeeRate*100).toFixed(2)}"> %</label>
-      <span>目標NGP1 = (活動價GP − 活動價×抽成率 − 活動價×金流費率) × 目標數量　｜　NGP1 = GP actual − SR×抽成率 − SR×金流費率　｜　達成率 = NGP1 ÷ 目標NGP1</span>
+      <label>OES1固定費用 <input type="number" id="oes1Input" step="0.1" value="${(oes1Rate*100).toFixed(2)}"> %</label>
+      <span>目標NGP1 = (活動價GP − 活動價×抽成率 − 活動價×金流費率 − 活動價×OES1固定費用) × 目標數量　｜　NGP1 = GP actual − SR×抽成率 − SR×金流費率 − SR×OES1固定費用　｜　達成率 = NGP1 ÷ 目標NGP1</span>
     </div>
     <div class="section">
       <h2>商品明細登錄（追蹤專案品銷量貢獻的NGP1，GMV、GP 請填「每一件」的單價/單位毛利）</h2>
@@ -709,6 +722,11 @@ function renderBeutiiTab(container, store) {
   document.getElementById("cashFeeInput").onchange = (e) => {
     const v = parseFloat(e.target.value);
     state.cashFeeRate = isNaN(v) ? 0 : v / 100;
+    saveState();
+  };
+  document.getElementById("oes1Input").onchange = (e) => {
+    const v = parseFloat(e.target.value);
+    state.oes1Rate[store] = isNaN(v) ? 0 : v / 100;
     saveState();
   };
   document.getElementById("addItemBtn").onclick = () => {
